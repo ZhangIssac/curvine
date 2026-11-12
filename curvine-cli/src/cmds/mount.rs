@@ -76,7 +76,7 @@ pub struct MountCommand {
 
     #[arg(
         long,
-        help = "UFS provider: auto, oss-hdfs, opendal. Controls which implementation to use for the given scheme."
+        help = "UFS provider: auto, oss-hdfs, opendal, cosn. Controls which implementation to use for the given scheme."
     )]
     provider: Option<String>,
 
@@ -697,6 +697,7 @@ fn provider_str(provider: Option<Provider>) -> String {
         Some(Provider::Auto) => "auto".to_string(),
         Some(Provider::OssHdfs) => "oss-hdfs".to_string(),
         Some(Provider::Opendal) => "opendal".to_string(),
+        Some(Provider::Cosn) => "cosn".to_string(),
     }
 }
 
