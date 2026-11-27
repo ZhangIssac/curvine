@@ -201,6 +201,7 @@ where
             submitter: req.submitter.clone(),
             tenant: req.tenant.clone(),
             options: Default::default(),
+            files: Vec::new(),
         };
         if !req.command.is_empty() {
             command = decode_transfer_command(&req.command)?;
@@ -419,6 +420,22 @@ where
         self.store.check_available()
     }
 
+    pub fn default_target_for_source(&self, kind: TransferKind, source: &str) -> FsResult<String> {
+        let cache = self.cache.as_ref().ok_or_else(|| {
+            FsError::common("Cluster metadata is unavailable; target_path is required")
+        })?;
+        cache.target_path_for_source(kind, &Path::from_str(source)?)
+    }
+
+    pub fn get_transfer_by_request(
+        &self,
+        submitter: &str,
+        client_request_id: &str,
+    ) -> FsResult<Option<TransferJobRecord>> {
+        self.store
+            .get_transfer_by_request(submitter, client_request_id)
+    }
+
     pub fn get_transfer(&self, job_id: &str) -> FsResult<TransferJobRecord> {
         self.store
             .get_transfer(job_id)?
@@ -481,7 +498,14 @@ where
         Ok((job, counts, tasks, next_page_token))
     }
 
-    pub fn list_transfers(&self, req: ListTransfersRequest) -> FsResult<ListTransfersResponse> {
+    /// One page of transfer jobs, before the proto conversion.
+    ///
+    /// The RPC path goes through [`Self::list_transfers`]; the master's HTTP API
+    /// serializes these records itself so the JSON layout stays readable.
+    pub fn list_transfer_records(
+        &self,
+        req: ListTransfersRequest,
+    ) -> FsResult<(Vec<TransferJobRecord>, Option<String>)> {
         let page_size = bounded_page_size(req.page_size);
         let offset = parse_page_token(req.page_token)?;
         let filter = TransferListFilter {
@@ -500,6 +524,11 @@ where
         } else {
             None
         };
+        Ok((jobs, next_page_token))
+    }
+
+    pub fn list_transfers(&self, req: ListTransfersRequest) -> FsResult<ListTransfersResponse> {
+        let (jobs, next_page_token) = self.list_transfer_records(req)?;
         Ok(ListTransfersResponse {
             jobs: jobs.into_iter().map(job_to_proto).collect(),
             next_page_token,
@@ -1110,6 +1139,10 @@ fn progress_from_proto(value: TransferProgressProto) -> TransferProgress {
     TransferProgress {
         loaded_size: value.loaded_size,
         total_size: value.total_size,
+        total_files: value.total_files.unwrap_or_default(),
+        loaded_files: value.loaded_files.unwrap_or_default(),
+        skipped_files: value.skipped_files.unwrap_or_default(),
+        skipped_size: value.skipped_size.unwrap_or_default(),
         update_time: value.update_time,
         message: value.message,
     }
@@ -1121,6 +1154,10 @@ pub fn progress_to_proto(value: TransferProgress) -> TransferProgressProto {
         total_size: value.total_size,
         update_time: value.update_time,
         message: value.message,
+        total_files: Some(value.total_files),
+        loaded_files: Some(value.loaded_files),
+        skipped_files: Some(value.skipped_files),
+        skipped_size: Some(value.skipped_size),
     }
 }
 
